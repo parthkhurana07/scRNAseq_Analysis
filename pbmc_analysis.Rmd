@@ -1,0 +1,131 @@
+---
+title: "pbmc_analysis"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Purpose
+
+This project processes and analyzes single-cell RNA-seq (scRNA-seq) data from human peripheral blood mononuclear cells (PBMCs). The workflow includes data loading, quality control, normalization, and dimensionality reduction using the Seurat package.
+
+## Libraries
+
+```{r}
+library(Seurat)
+library(SeuratObject)
+library(tidyverse)
+```
+
+## Data Loading
+
+The raw scRNA-seq data is loaded from an h5 file.
+
+```{r}
+pbmc_sparse <- Read10X_h5(filename = '~/Desktop/Projects/scRNASeq_analysis/20k_Human_Donor1-4_PBMC_3p_gem-x_multiplex_Multiplex_count_raw_feature_bc_matrix.h5')
+str(pbmc_sparse)
+```
+
+## Create Seurat Object
+
+Transform the raw counts into a Seurat object for downstream analysis.
+
+```{r}
+pbmc_sparse <- CreateSeuratObject(counts = pbmc_sparse, project = 'pmbc', min.cells = 3, min.features = 200)
+pbmc_sparse
+glimpse(pbmc_sparse)
+head(pbmc_sparse@meta.data)
+```
+
+## Quality Control
+
+Add mitochondrial content percentage and visualize quality metrics.
+
+```{r}
+pbmc_sparse[["percent.mt"]] <- PercentageFeatureSet(pbmc_sparse, pattern = "MT-")
+head(pbmc_sparse@meta.data)
+VlnPlot(pbmc_sparse, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+FeatureScatter(pbmc_sparse, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") +
+  geom_smooth(method = 'lm')
+```
+
+Filter cells based on quality metrics:
+
+```{r}
+pbmc_sparse <- subset(pbmc_sparse, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & 
+                          percent.mt < 5)
+```
+
+## Data Normalization
+
+Normalize the gene expression data.
+
+```{r}
+pbmc_sparse <- NormalizeData(pbmc_sparse)
+str(pbmc_sparse)
+```
+
+## Identification of Variable Features
+
+Identify and visualize the top variable features.
+
+```{r}
+pbmc_sparse <- FindVariableFeatures(pbmc_sparse, selection.method = "vst", nfeatures = 2000)
+```
+
+```{r}
+top10 <- head(VariableFeatures(pbmc_sparse))
+plot1 <- VariableFeaturePlot(pbmc_sparse)
+LabelPoints(plot = plot1, points = top10, repel = TRUE)
+```
+
+## Scaling Data
+
+Scale the data to standardize values.
+
+```{r}
+all_genes <- rownames(pbmc_sparse)
+pbmc_sparse <- ScaleData(pbmc_sparse, features = all_genes)
+str(pbmc_sparse)
+```
+
+## Principal Component Analysis
+
+Perform PCA to identify major sources of variation.
+
+```{r}
+pbmc_sparse <- RunPCA(pbmc_sparse, features = VariableFeatures(object = pbmc_sparse))
+
+print(pbmc_sparse[["pca"]], dims = 1:5, nfeatures =5)
+DimHeatmap(pbmc_sparse, dims = 1, cells = 500, balanced = TRUE)
+
+ElbowPlot(pbmc_sparse)
+```
+
+## Clustering
+
+Cluster cells based on principal components.
+
+```{r}
+pbmc_sparse <- FindNeighbors(pbmc_sparse, dims =1:15)
+
+pbmc_sparse <- FindClusters(pbmc_sparse, resolution = c(0.1,0.3,0.5,0.7,1))
+print(head((pbmc_sparse@meta.data)))
+
+DimPlot(pbmc_sparse, group.by = "RNA_snn_res.0.5")
+```
+
+```{r}
+Idents(pbmc_sparse)
+Idents(pbmc_sparse) <- "RNA_snn_res.0.1"
+Idents(pbmc_sparse)
+```
+
+## UMAP Embedding
+
+Generate a UMAP plot to visualize clustering in reduced dimensions.
+
+```{r}
+pbmc_sparse <- RunUMAP(pbmc_sparse, dims = 1:15)
+DimPlot(pbmc_sparse, reduction = "umap")
+```
